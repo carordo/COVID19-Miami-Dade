@@ -1,0 +1,451 @@
+---
+title: "Covid Casis Analysis Miami-Dade using C3.ai datalake"
+output: html_notebook
+
+---
+title: "C3.ai COVID-19 Data Lake Quickstart in R"
+output: html_notebook
+---
+
+# C3.ai COVID-19 Data Lake Quickstart in R  
+
+Version 4.0 (June 23, 2020)
+
+This R notebook shows some examples of how to access and use each of the [C3.ai COVID-19 Data Lake](https://c3.ai/covid/) APIs. These examples show only a small piece of what you can do with the C3.ai COVID-19 Data Lake, but will get you started with performing your own exploration. See the [API documentation](https://c3.ai/covid-19-api-documentation/) for more details.
+
+Please contribute your questions, answers and insights on [Stack Overflow](https://www.stackoverflow.com). Tag `c3ai-datalake` so that others can view and help build on your contributions. For support, please send email to: [covid@c3.ai](mailto:covid@c3.ai).
+
+To view an outline of this notebook, use the RStudio keyboard shortcut Control + Shift + O on Windows or Command + Shift + O on Mac. 
+
+Import the tidyverse (version >= 1.3.0), httr, jsonlite, and fitdistrplus libraries to use this notebook.
+```{r}
+if (!require(tidyverse)) install.packages('tidyverse')
+if (!require(httr)) install.packages('httr')
+if (!require(jsonlite)) install.packages('jsonlite')
+if (!require(fitdistrplus)) install.packages('fitdistrplus')
+if (!require(fitdistrplus))install.packages("viridis")  # Install
+library("viridis")           # Load
+
+library(tidyverse)
+library(httr)
+library(jsonlite)
+library(fitdistrplus)
+library(dplyr)
+library(readr) #To read the dataset
+library(tidyverse) #For data manipulation and visual analytics
+if (!require(correlationfunnel)) install.packages("correlationfunnel")
+library(correlationfunnel)
+library(DataExplorer)
+if (!require(WVPlots)) install.packages("WVPlots")
+library(WVPlots)
+if (!require(ggthemes)) install.packages("ggthemes")
+library(ggthemes)
+if (!require(corrplot)) install.packages("corrplot")
+library(corrplot)
+if (!require(ROCR)) install.packages("ROCR")
+
+library(ROCR)
+
+library(caret)
+if (!require(cowplot)) install.packages('cowplot')
+if (!require(egg)) install.packages('egg')
+if (!require(ggpubr)) install.packages('ggpubr')
+
+library(cowplot)
+library(egg)
+library(ggpubr)
+install.packages("rlist")
+library(rlist)
+```
+
+## Helper methods for accessing the API
+
+The helper methods in `c3aidatalake.R` convert a JSON response from the C3.ai APIs to a Tibble. You may wish to view the code in `c3aidatalake.R` before using the quickstart examples.
+```{r}
+source("c3aidatalake.R")
+```
+
+## Access OutbreakLocation data
+
+OutbreakLocation stores location data such as countries, provinces, cities, where COVID-19 outbeaks are recorded. See the [API documentation](https://c3.ai/covid-19-api-documentation/#tag/OutbreakLocation) for more details and for a list of available locations.
+
+```{r}
+# Fetch facts about UnitedSates
+locations <- fetch(
+    "outbreaklocation",
+    list(
+      spec = list(
+        filter = "id == 'UnitedStates'"
+      )
+    )
+)
+
+locations
+
+locations %>% 
+  dplyr::select(-location) %>% 
+  unnest_wider(12086, names_sep = ".")
+```
+
+
+
+
+
+### Case counts
+
+A variety of sources provide counts of cases, deaths, recoveries, and other statistics for counties, provinces, and countries worldwide.
+```{r}
+# Total number of confirmed cases, deaths, and recoveries in Miami-Dade County, Florida
+today <- Sys.Date()
+
+#cases for march
+casecounts <- evalmetrics(
+  "outbreaklocation",
+  list(
+    spec = list(
+      ids = list("Miami-Dade_Florida_UnitedStates"),
+      expressions = list("JHU_ConfirmedCases", "JHU_ConfirmedDeaths", "JHU_ConfirmedRecoveries"),
+      start = "2020-03-01",
+      end = "2020-03-30",
+      #end = today,
+      interval = "DAY"
+    )
+  )
+)
+
+#cases until system date
+casecounts2 <- evalmetrics(
+  "outbreaklocation",
+  list(
+    spec = list(
+      ids = list("Miami-Dade_Florida_UnitedStates"),
+      expressions = list("JHU_ConfirmedCases", "JHU_ConfirmedDeaths", "JHU_ConfirmedRecoveries"),
+      start = "2020-03-01",
+      #end = "2020-03-30",
+      end = today,
+      interval = "DAY"
+    )
+  )
+)
+```
+
+
+
+Checking all data
+```{r}
+check_data <- function(casecountsx){
+  
+  casecounts%>%
+    arrange(desc(dates))
+  glimpse(casecounts)
+  casecounts%>%
+    plot_missing()
+  
+  casecountsfirst <-casecounts%>%
+    filter(data>0)%>%
+    filter(value_id == "JHU_ConfirmedCases" )
+  casecountsfirst$dates[1]  
+}
+check_data(casecounts)
+```
+
+Plot these counts.
+this plot is for Miami Dade with casecounts for the month of march
+```{r}
+plot1 <- casecounts %>% 
+  ggplot(aes(dates, data, color = value_id))+
+  geom_line() +
+  scale_y_log10()+
+  facet_wrap(vars(name)) +
+  
+ #theme_dark()
+  #scale_color_viridis(discrete = FALSE, option = "C")+
+  labs(
+    x = "Date",
+    y = "Count",
+    color = "Metric"
+  )
+plot2 <- casecounts %>% 
+  ggplot(aes(dates, data, color = value_id), palette= "jco") +
+  geom_line() +
+  facet_wrap(vars(name)) +
+  labs(
+    x = "Date",
+    y = "Count",
+    color = "Metric"
+  )
+
+#cowplot::plot_grid(plot1, plot2, align = "v", ncol = 2,nrow1 = 1)# rel_heights = c(0.25, 0.75))
+
+figure <-ggarrange(plot1, plot2,ncol = 1,nrow = 2)
+               # label.y = 1,
+               # hjust = -0.5,
+               # vjust = 1.5,
+               # font.label = list(size = 14, color = "black", face = "bold", family = NULL),
+               # widths = 1,
+               # heights = 1)# heights = c(0.25, 0.75))
+annotate_figure(figure,
+                top = text_grob("Miami Dade First Case in March", color = "blue", face = "bold", size = 14),
+                bottom = text_grob("Data source: \ C3.ai Covid Data Lake", color = "blue",
+                                   hjust = 1, x = 1, face = "italic", size = 10),
+                left = text_grob("Data in Linear and Logarithmic Scales", color = "blue", rot = 90),
+                # right = "I'm done, thanks :-)!",
+                fig.lab = "Figure 1", fig.lab.face = "bold"
+                )
+```
+
+This function will plot casecounts
+```{r}
+plot_cases<-function (casecountsx) {
+  #### total as of today
+  plot1 <- casecountsx %>% 
+    ggplot(aes(dates, data/1000, color = value_id))+
+    geom_line() +
+    scale_y_log10(labels = waiver(), breaks= c(10,100,1000,10000,100000,1000000,10000000))+
+    facet_wrap(vars(name)) +
+    
+   #theme_dark()
+    #scale_color_viridis(discrete = FALSE, option = "C")+
+    labs(
+      x = "Date",
+      y = "Count (Thousands) - Log",
+      color = "Metric"
+    )
+  plot2 <- casecountsx %>% 
+    ggplot(aes(dates, data, color = value_id), palette= "jco") +
+    geom_line() +
+    facet_wrap(vars(name)) +
+    labs(
+      x = "Date",
+      y = "Count - Linear",
+      color = "Metric"
+    )
+  if (!require(cowplot)) install.packages('cowplot')
+  if (!require(egg)) install.packages('egg')
+  if (!require(ggpubr)) install.packages('ggpubr')
+  
+  library(cowplot)
+  library(egg)
+  library(ggpubr)
+  #cowplot::plot_grid(plot1, plot2, align = "v", ncol = 2,nrow1 = 1)# rel_heights = c(0.25, 0.75))
+  
+  figure <-ggarrange(plot1, plot2,ncol = 1,nrow = 2)
+                 # label.y = 1,
+                 # hjust = -0.5,
+                 # vjust = 1.5,
+                 # font.label = list(size = 14, color = "black", face = "bold", family = NULL),
+                 # widths = 1,
+                 # heights = 1)# heights = c(0.25, 0.75))
+  annotate_figure(figure,
+                  top = text_grob(casecountsx$name[1], color = "blue", face = "bold", size = 14),
+                  bottom = text_grob("Data source: \ C3.ai Covid Data Lake", color = "blue",
+                                     hjust = 1, x = 1, face = "italic", size = 10),
+                  left = text_grob("Data in Linear and Logarithmic Scales", color = "blue", rot = 90),
+                  # right = "I'm done, thanks :-)!",
+                  fig.lab = "Figure 2", fig.lab.face = "bold"
+                  )
+  
+}
+```
+Checkin all data and plot casescounts2
+
+```{r}
+check_data(casecounts2)
+plot_cases(casecounts2)
+```
+
+plot only logartihmic charts
+```{r}
+plot_cases_log<-function (casecountsx) {
+  #### total as of today
+  plot1 <- casecountsx %>% 
+    ggplot(aes(dates, data/1000, color = value_id))+
+    geom_line() +
+    scale_y_log10(labels = waiver(), breaks= c(10,100,1000,10000,100000,1000000,10000000))+
+    facet_wrap(vars(name)) +
+    
+   #theme_dark()
+    #scale_color_viridis(discrete = FALSE, option = "C")+
+    labs(
+      x = "Date",
+      y = "Count (Thousands)",
+      color = "Metric"
+    )
+  
+  figure <-ggarrange(plot1, ncol = 1,nrow = 1)
+                 # label.y = 1,
+                 # hjust = -0.5,
+                 # vjust = 1.5,
+                 # font.label = list(size = 14, color = "black", face = "bold", family = NULL),
+                 # widths = 1,
+                 # heights = 1)# heights = c(0.25, 0.75))
+  annotate_figure(figure,
+                  top = text_grob("Logorithmic Plot", color = "blue", face = "bold", size = 14),
+                  bottom = text_grob("Data source: \ C3.ai Covid Data Lake", color = "blue",
+                                     hjust = 1, x = 1, face = "italic", size = 10),
+                  left = text_grob("Data in Logarithmic Scales", color = "blue", rot = 90),
+                  # right = "I'm done, thanks :-)!",
+                  fig.lab = "Figure 2", fig.lab.face = "bold"
+                  )
+  
+}
+```
+
+
+```{r}
+#check_data(casecountList)
+plot_cases_log(casecounts2)
+```
+
+
+Export case counts as a .csv file.
+
+```{r}
+# Uncomment the line below to export the Tibble as a .csv file
+# casecounts %>% write_csv("casecounts.csv")
+```
+
+
+### Mobility
+
+Mobility data from Apple and Google provide a view of the impact of COVID-19 and social distancing on mobility trends.
+```{r}
+mobility_trends <- evalmetrics(
+  "outbreaklocation",
+  list(
+    spec = list(
+      ids = list("Miami-Dade_Florida_UnitedStates"),
+      expressions = list(
+        "Apple_WalkingMobility", 
+        "Apple_DrivingMobility",
+        "Google_ParksMobility",
+        "Google_ResidentialMobility"
+      ),
+      start = "2020-03-01",
+      end = "2020-07-31",
+      interval = "DAY"
+    )
+  ),
+  get_all = TRUE
+)
+
+mobility_trends
+```
+
+Plot these mobility trends.
+```{r}
+mobility_trends %>% 
+  ggplot(aes(dates, data/100, color = value_id)) +
+  geom_hline(aes(yintercept = 1), linetype = "dashed") +
+  geom_line() +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(vars(name)) +
+  labs(
+    x = "Date",
+    y = "Mobility compared to baseline",
+    color = "Metric"
+  )
+```
+
+### Projections
+
+Use the GetProjectionHistory API to retrieve versioned time series projections for specific metrics made at specific points in time.
+```{r}
+# Retrieve projections made between April 13 and May 1 of mean total cumulative deaths in Miami Dade from April 13 to May 13
+projections <- getprojectionhistory(
+  list(
+    outbreakLocation = "UnitedStates",
+    metric = "UniversityOfWashington_TotdeaMean_Hist",
+    metricStart = "2020-06-13", 
+    metricEnd = "2020-07-31",
+    observationPeriodStart = "2020-06-13",
+    observationPeriodEnd = "2020-07-31"
+  )
+)
+
+head(projections)
+```
+
+```{r}
+# Retrieve actual total cumulative deaths in MiamiDade  from April 1 to July 31st
+Miami_deaths <- evalmetrics(
+  "outbreaklocation",
+  list(
+    spec = list(
+      ids = list("Miami-Dade_Florida_UnitedStates"),
+      expressions = list("JHU_ConfirmedDeaths"),
+      start = "2020-04-01",
+      end = "2020-07-31",
+      interval = "DAY"
+    )
+  )
+)
+
+Miami_deaths
+
+Miami_cases <- evalmetrics(
+  "outbreaklocation",
+  list(
+    spec = list(
+      ids = list("Miami-Dade_Florida_UnitedStates"),
+      expressions = list("JHU_ConfirmedCases"),
+      start = "2020-04-01",
+      end = "2020-07-31",
+      interval = "DAY"
+    )
+  )
+)
+
+US_deaths <- evalmetrics(
+  "outbreaklocation",
+  list(
+    spec = list(
+      ids = list("UnitedStates"),
+      expressions = list("JHU_ConfirmedDeaths"),
+      start = "2020-04-01",
+      end = "2020-07-31",
+      interval = "DAY"
+    )
+  )
+)
+Miami_cases
+cor(Miami_cases$data,Miami_deaths$data)
+```
+
+Plot the results.
+```{r}
+
+ggplot() +
+  geom_line(
+    aes(dates, data), 
+    data = Miami_deaths, 
+    color = "red",
+
+  ) +
+  # geom_smooth(
+  #   data=Miami_deaths,
+  #   aes(dates, data),
+  #   fill="blue",
+  #   colour="darkblue", size=1
+  #   )+ 
+# 
+  # geom_line(
+  #   aes(dates, data),
+  #   data = US_deaths,
+  #   color = "black",
+  # 
+  # ) +
+  facet_wrap(vars(name)) +
+  labs(
+    x = "Date",
+    y = "Count",
+    color = "Metric",
+    title = "Cumulative death count"
+    
+  )
+```
+
+
+```{r}
+
+
